@@ -1,62 +1,113 @@
 import gleam/int
-import gleam/list
-import gleam/result
 import gleam/string
 
-type Mul =
-  #(Int, Int)
-
-fn parse_nums(str: String) {
-  use #(expr, _) <- result.try(string.split_once(str, ")"))
-  use #(left, right) <- result.try(string.split_once(expr, ","))
-  use a <- result.try(int.parse(left))
-  use b <- result.try(int.parse(right))
-
-  Ok(#(a, b))
+type ProcessState {
+  State(n1: Int, n2: Int, tot1: Int, tot2: Int, mul_enabled: Bool)
 }
 
-pub fn parse1(data: String) -> List(Mul) {
-  string.split(data, "mul(") |> list.map(parse_nums) |> result.values()
+type State {
+  None
+  M
+  U
+  L
+  MulLParen
+  NumParsing(value: Int, digits: Int)
+  Num1(value: Int)
+  Num2(value: Int)
+  D
+  O
+  DoLParen
+  DoRParen
+  N
+  Apos
+  T
+  DontLParen
+  DontRParen
 }
 
-pub fn part1(data: String) {
-  data
-  |> parse1()
-  |> list.fold(0, fn(tot, mul) { tot + mul.0 * mul.1 })
-}
+fn process(feed: List(String), state: State, process_state: ProcessState) {
+  case feed {
+    [] -> #(process_state.tot1, process_state.tot2)
+    [f, ..fs] -> {
+      let next_state = case state, f {
+        _, "d" -> D
+        D, "o" -> O
+        O, "(" -> DoLParen
+        DoLParen, ")" -> DoRParen
+        O, "n" -> N
+        N, "'" -> Apos
+        Apos, "t" -> T
+        T, "(" -> DontLParen
+        DontLParen, ")" -> DontRParen
 
-fn parse2_internal(on: Bool, acc: List(Mul), data: String) {
-  case data {
-    "" -> acc
-    _ -> {
-      case on {
-        True -> {
-          let split = string.split_once(data, "don't()")
-          case split {
-            Ok(#(do, rest)) -> {
-              parse2_internal(False, list.flatten([acc, parse1(do)]), rest)
+        _, "m" -> M
+        M, "u" -> U
+        U, "l" -> L
+        L, "(" -> MulLParen
+        MulLParen, _ | Num1(_), _ -> {
+          case f {
+            "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> {
+              let assert Ok(n) = int.parse(f)
+              NumParsing(n, 1)
             }
-            _ -> parse2_internal(False, list.flatten([acc, parse1(data)]), "")
+            _ -> None
           }
         }
-        False -> {
-          let split = string.split_once(data, "do()")
-          case split {
-            Ok(#(_rest, do)) -> parse2_internal(True, acc, do)
-            _ -> acc
+        NumParsing(n, c), _ -> {
+          case f {
+            "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> {
+              let assert Ok(next_digit) = int.parse(f)
+              NumParsing(n * 10 + next_digit, c + 1)
+            }
+            "," -> Num1(n)
+            ")" -> Num2(n)
+            _ -> None
           }
         }
+
+        _, _ -> None
+      }
+      case next_state {
+        Num1(new_n1) ->
+          process(fs, next_state, State(..process_state, n1: new_n1))
+        Num2(new_n2) -> {
+          let new_tot1 = process_state.tot1 + process_state.n1 * new_n2
+          let new_tot2 = case process_state.mul_enabled {
+            True -> process_state.tot2 + process_state.n1 * new_n2
+            False -> process_state.tot2
+          }
+          process(
+            fs,
+            next_state,
+            State(..process_state, n1: 0, n2: 0, tot1: new_tot1, tot2: new_tot2),
+          )
+        }
+        DoRParen ->
+          process(fs, next_state, State(..process_state, mul_enabled: True))
+        DontRParen ->
+          process(fs, next_state, State(..process_state, mul_enabled: False))
+        _ -> process(fs, next_state, process_state)
       }
     }
   }
 }
 
-pub fn parse2(data: String) -> List(Mul) {
-  parse2_internal(True, [], data)
+pub fn part1(data: String) {
+  let #(tot1, _tot2) =
+    process(
+      string.to_graphemes(data),
+      None,
+      State(n1: 0, n2: 0, tot1: 0, tot2: 0, mul_enabled: True),
+    )
+  tot1
 }
 
 pub fn part2(data: String) {
-  data
-  |> parse2()
-  |> list.fold(0, fn(tot, mul) { tot + mul.0 * mul.1 })
+  let #(_tot1, tot2) =
+    process(
+      string.to_graphemes(data),
+      None,
+      State(n1: 0, n2: 0, tot1: 0, tot2: 0, mul_enabled: True),
+    )
+  tot2
 }
